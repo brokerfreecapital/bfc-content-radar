@@ -14,9 +14,24 @@ DATA_DIR = Path("data")
 EMBED_DB_PATH = DATA_DIR / "content_memory.sqlite"
 CONTENT_JSONL = DATA_DIR / "content_records.jsonl"
 
-# Handle cases where "data" is a symlink or preexisting mount path.
-if not DATA_DIR.exists() and not DATA_DIR.is_symlink():
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+def _ensure_data_dir() -> None:
+    """Ensure DATA_DIR exists, even if it's a symlink whose target is missing."""
+    if DATA_DIR.is_symlink():
+        try:
+            target = DATA_DIR.readlink()
+        except OSError:
+            target = None
+        if target:
+            target.mkdir(parents=True, exist_ok=True)
+        elif not DATA_DIR.exists():
+            # Fallback: create a plain directory at the symlink path if target unknown
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+    elif not DATA_DIR.exists():
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+_ensure_data_dir()
 
 
 def append_jsonl(records: Iterable[dict]) -> None:
