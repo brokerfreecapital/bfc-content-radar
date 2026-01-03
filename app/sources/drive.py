@@ -1,10 +1,15 @@
+import io
 import os
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional
 
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
-DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
+DRIVE_SCOPES = [
+    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/drive.file",
+]
 
 def get_file_metadata(file_id: str) -> dict:
     service = _drive_service()
@@ -21,7 +26,7 @@ def _drive_service():
         token_uri="https://oauth2.googleapis.com/token",
         client_id=os.environ["GOOGLE_CLIENT_ID"],
         client_secret=os.environ["GOOGLE_CLIENT_SECRET"],
-        scopes=[DRIVE_SCOPE],
+        scopes=DRIVE_SCOPES,
     )
     return build("drive", "v3", credentials=creds)
 
@@ -80,6 +85,63 @@ def list_txt_files(folder_id: str) -> List[dict]:
 
     files.sort(key=lambda x: x.get("modifiedTime", ""), reverse=True)
     return files
+
+
+def list_files(folder_id: str, mime_types: Optional[Iterable[str]] = None) -> List[dict]:
+    """List files in a folder, optionally filtered by mime types."""
+    service = _drive_service()
+    base_q = f"'{folder_id}' in parents and trashed=false"
+    if mime_types:
+        mime_parts = [f"mimeType='{m}'" for m in mime_types]
+        mime_clause = " or ".join(mime_parts)
+        base_q += f" and ({mime_clause})"
+
+    out: List[dict] = []
+    page_token: Optional[str] = None
+
+    while True:
+        resp = service.files().list(
+            q=base_q,
+            fields="nextPageToken, files(id, name, mimeType, modifiedTime, createdTime, size)",
+            pageToken=page_token,
+            pageSize=200,
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+        ).execute()
+
+        out.extend(resp.get("files", []))
+        page_token = resp.get("nextPageToken")
+        if not page_token:
+            break
+
+    out.sort(key=lambda x: x.get("modifiedTime", ""), reverse=True)
+    return out
+
+
+def download_file(file_id: str, destination_path: str) -> None:
+    """Download any Drive file to the given local path."""
+    service = _drive_service()
+    request = service.files().get_media(fileId=file_id)
+    with open(destination_path, "wb") as fh:
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+
+
+def upload_text_file(folder_id: str, filename: str, content: str) -> dict:
+    """Upload a UTF-8 text file into the specified Drive folder."""
+    service = _drive_service()
+    media_body = MediaIoBaseUpload(io.BytesIO(content.encode("utf-8")), mimetype="text/plain")
+    file_metadata = {
+        "name": filename,
+        "parents": [folder_id],
+    }
+    return service.files().create(
+        body=file_metadata,
+        media_body=media_body,
+        fields="id,name,modifiedTime",
+    ).execute()
 
 def download_text(file_id: str) -> str:
     """Download a text/plain file content."""
