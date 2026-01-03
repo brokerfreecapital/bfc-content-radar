@@ -22,12 +22,22 @@ def _ensure_data_dir() -> None:
             target = DATA_DIR.readlink()
         except OSError:
             target = None
+
         if target:
-            target.mkdir(parents=True, exist_ok=True)
-        elif not DATA_DIR.exists():
-            # Fallback: create a plain directory at the symlink path if target unknown
+            try:
+                target.mkdir(parents=True, exist_ok=True)
+                return
+            except PermissionError:
+                # Cannot write to target (e.g., /var/data). Fall back to local dir.
+                DATA_DIR.unlink(missing_ok=True)
+
+        # Fallback: create a plain directory at the symlink path if target unknown or removed
+        if not DATA_DIR.exists():
             DATA_DIR.mkdir(parents=True, exist_ok=True)
-    elif not DATA_DIR.exists():
+    else:
+        if DATA_DIR.exists() and not DATA_DIR.is_dir():
+            # If a file exists named "data", raise a clear error
+            raise RuntimeError("'data' exists and is not a directory; please remove or rename it.")
         DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
