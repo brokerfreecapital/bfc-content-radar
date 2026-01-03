@@ -14,7 +14,9 @@ DATA_DIR = Path("data")
 EMBED_DB_PATH = DATA_DIR / "content_memory.sqlite"
 CONTENT_JSONL = DATA_DIR / "content_records.jsonl"
 
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+# Handle cases where "data" is a symlink or preexisting mount path.
+if not DATA_DIR.exists() and not DATA_DIR.is_symlink():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def append_jsonl(records: Iterable[dict]) -> None:
